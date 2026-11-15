@@ -20,9 +20,11 @@ struct Solution {
 /// conditions and calls the linear solver it was given.
 class BarSolver {
 public:
+    /// The default solver pivots, so it also handles boundary conditions that
+    /// make the matrix indefinite (e.g. a Robin condition with alpha > 0 at x = 0).
     /// \throws std::invalid_argument if `linear_solver` is null.
     explicit BarSolver(
-        std::unique_ptr<LinearSolver> linear_solver = std::make_unique<ThomasSolver>());
+        std::unique_ptr<LinearSolver> linear_solver = std::make_unique<TridiagonalLuSolver>());
 
     [[nodiscard]] Solution solve(const Mesh& mesh, const BarProperties& bar,
                                  const BoundaryCondition& left,

@@ -32,9 +32,22 @@ protected:
 };
 
 /// Thomas algorithm: Gaussian elimination specialised to tridiagonal
-/// matrices. O(n) time and memory, no pivoting, so it is safe for
-/// symmetric positive definite or diagonally dominant matrices.
+/// matrices, without pivoting. O(n) time and memory.
+///
+/// Without pivoting it is only stable when the matrix is diagonally dominant,
+/// so it checks that first. Stiffness matrices of the bar with physical
+/// supports (Dirichlet, Neumann, springs with positive stiffness) satisfy it.
 class ThomasSolver final : public LinearSolver {
+public:
+    /// \throws std::domain_error if some row has |a_ii| < sum_{j != i} |a_ij|.
+    [[nodiscard]] std::vector<double> solve(const TridiagonalMatrix& a,
+                                            const std::vector<double>& b) const override;
+};
+
+/// Gaussian elimination with partial pivoting, specialised to tridiagonal
+/// matrices (the algorithm of LAPACK's dgtsv). Row exchanges add one extra
+/// upper diagonal, so it stays O(n) and works for any non-singular matrix.
+class TridiagonalLuSolver final : public LinearSolver {
 public:
     [[nodiscard]] std::vector<double> solve(const TridiagonalMatrix& a,
                                             const std::vector<double>& b) const override;

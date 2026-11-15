@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 using fem1d::BarProperties;
 using fem1d::BarSolver;
@@ -22,6 +23,8 @@ using fem1d::Robin;
 using fem1d::ScalarField;
 using fem1d::SingularMatrixError;
 using fem1d::Solution;
+using fem1d::ThomasSolver;
+using fem1d::TridiagonalLuSolver;
 using fem1d::test::max_nodal_error;
 
 namespace {
@@ -172,13 +175,18 @@ SCENARIO("The linear solver is a replaceable strategy", "[scenario]") {
         bar.body_force = [](double x) { return 2.0 * x; };
         const auto mesh = Mesh::uniform(1.0, 40);
 
-        WHEN("it is solved with the Thomas solver and with dense LU") {
-            const auto thomas = BarSolver{}.solve(mesh, bar, Dirichlet(0.0), Robin(10.0, 1.0, 0.0));
-            const auto dense = BarSolver{std::make_unique<DenseLuSolver>()}.solve(
-                mesh, bar, Dirichlet(0.0), Robin(10.0, 1.0, 0.0));
+        WHEN("it is solved with each of the three linear solvers") {
+            const auto solve_with = [&](std::unique_ptr<fem1d::LinearSolver> solver) {
+                return BarSolver{std::move(solver)}.solve(mesh, bar, Dirichlet(0.0),
+                                                          Robin(10.0, 1.0, 0.0));
+            };
+            const auto thomas = solve_with(std::make_unique<ThomasSolver>());
+            const auto tridiagonal_lu = solve_with(std::make_unique<TridiagonalLuSolver>());
+            const auto dense = solve_with(std::make_unique<DenseLuSolver>());
 
-            THEN("both give the same displacements") {
+            THEN("all give the same displacements") {
                 CHECK(fem1d::test::max_abs_diff(thomas.u, dense.u) < tolerance);
+                CHECK(fem1d::test::max_abs_diff(tridiagonal_lu.u, dense.u) < tolerance);
                 CHECK(thomas.x == mesh.nodes());
             }
         }

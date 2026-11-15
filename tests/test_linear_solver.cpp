@@ -1,3 +1,5 @@
+#include "fem1d/assembler.hpp"
+#include "fem1d/boundary_conditions.hpp"
 #include "fem1d/linear_solver.hpp"
 #include "test_helpers.hpp"
 
@@ -7,9 +9,16 @@
 #include <stdexcept>
 #include <vector>
 
+using fem1d::Assembler;
+using fem1d::BarProperties;
 using fem1d::DenseLuSolver;
+using fem1d::Dirichlet;
+using fem1d::End;
+using fem1d::Mesh;
+using fem1d::Robin;
 using fem1d::SingularMatrixError;
 using fem1d::ThomasSolver;
+using fem1d::TridiagonalLuSolver;
 using fem1d::TridiagonalMatrix;
 using fem1d::test::max_abs_diff;
 
@@ -44,7 +53,7 @@ TridiagonalMatrix random_diagonally_dominant(std::size_t n, unsigned seed) {
 } // namespace
 
 TEMPLATE_TEST_CASE("Solvers recover a known solution of tridiag(-1, 2, -1)", "[solver]",
-                   ThomasSolver, DenseLuSolver) {
+                   ThomasSolver, TridiagonalLuSolver, DenseLuSolver) {
     // A x = b with x = (1, 2, 3, 4, 5)
     const std::vector<double> b{0.0, 0.0, 0.0, 0.0, 6.0};
     const std::vector<double> expected{1.0, 2.0, 3.0, 4.0, 5.0};
@@ -54,7 +63,8 @@ TEMPLATE_TEST_CASE("Solvers recover a known solution of tridiag(-1, 2, -1)", "[s
     CHECK(max_abs_diff(x, expected) < 1e-13);
 }
 
-TEMPLATE_TEST_CASE("Solvers reject a singular matrix", "[solver]", ThomasSolver, DenseLuSolver) {
+TEMPLATE_TEST_CASE("Solvers reject a singular matrix", "[solver]", ThomasSolver,
+                   TridiagonalLuSolver, DenseLuSolver) {
     // [[1, -1], [-1, 1]]: the free-free bar of one element.
     TridiagonalMatrix a(2);
     a.at(0, 0) = 1.0;
@@ -66,7 +76,7 @@ TEMPLATE_TEST_CASE("Solvers reject a singular matrix", "[solver]", ThomasSolver,
 }
 
 TEMPLATE_TEST_CASE("Solvers reject a right-hand side of the wrong size", "[solver]", ThomasSolver,
-                   DenseLuSolver) {
+                   TridiagonalLuSolver, DenseLuSolver) {
     CHECK_THROWS_AS(TestType{}.solve(second_difference(3), {1.0, 2.0}), std::invalid_argument);
 }
 
@@ -82,26 +92,70 @@ TEST_CASE("Thomas and dense LU agree on a random diagonally dominant system", "[
     }
 
     const auto x_thomas = ThomasSolver{}.solve(a, b);
+    const auto x_tridiagonal_lu = TridiagonalLuSolver{}.solve(a, b);
     const auto x_dense = DenseLuSolver{}.solve(a, b);
 
     CHECK(max_abs_diff(x_thomas, x_dense) < 1e-12);
+    CHECK(max_abs_diff(x_tridiagonal_lu, x_dense) < 1e-12);
     CHECK(max_abs_diff(a.multiply(x_thomas), b) < 1e-12);
 }
 
-TEST_CASE("Only the pivoting solver handles a zero leading diagonal entry", "[solver]") {
-    // [[0, 1], [1, 1]] x = (1, 2) has the solution x = (1, 1), but Thomas
-    // does not pivot and stops at the zero in the top-left corner.
+TEST_CASE("Only the pivoting solvers handle a zero leading diagonal entry", "[solver]") {
+    // [[0, 1], [1, 1]] x = (1, 2) has the solution x = (1, 1). The matrix is
+    // not singular, but without row exchanges the first pivot is zero.
     TridiagonalMatrix a(2);
     a.at(0, 1) = 1.0;
     a.at(1, 0) = 1.0;
     a.at(1, 1) = 1.0;
     const std::vector<double> b{1.0, 2.0};
 
-    CHECK_THROWS_AS(ThomasSolver{}.solve(a, b), SingularMatrixError);
+    CHECK_THROWS_AS(ThomasSolver{}.solve(a, b), std::domain_error);
+    CHECK(max_abs_diff(TridiagonalLuSolver{}.solve(a, b), {1.0, 1.0}) < 1e-14);
     CHECK(max_abs_diff(DenseLuSolver{}.solve(a, b), {1.0, 1.0}) < 1e-14);
 }
 
-TEMPLATE_TEST_CASE("Solvers handle a 1 x 1 system", "[solver]", ThomasSolver, DenseLuSolver) {
+TEST_CASE("Thomas refuses an indefinite FEM matrix instead of losing accuracy", "[solver]") {
+    // Regression: a left-end Robin condition 2 u(0) + EA u'(0) = 1 lowers
+    // K(0,0) to 38 next to K(0,1) = -40. The matrix is regular but not
+    // diagonally dominant; Thomas' pivots decay towards zero at row 20 and the
+    // answer was silently wrong by 2e-3.
+    BarProperties bar;
+    auto system = Assembler::assemble(Mesh::uniform(1.0, 40), bar);
+    Robin(2.0, 1.0, 1.0).apply(system, End::Left);
+    Dirichlet(0.0).apply(system, End::Right);
+
+    CHECK_THROWS_AS(ThomasSolver{}.solve(system.matrix, system.rhs), std::domain_error);
+
+    const auto x_tridiagonal_lu = TridiagonalLuSolver{}.solve(system.matrix, system.rhs);
+    const auto x_dense = DenseLuSolver{}.solve(system.matrix, system.rhs);
+    CHECK(max_abs_diff(x_tridiagonal_lu, x_dense) < 1e-12);
+}
+
+TEST_CASE("Tridiagonal LU solves a matrix that needs row exchanges", "[solver]") {
+    // Sub-diagonal 4 is larger than diagonal 1, so partial pivoting exchanges
+    // rows. Not diagonally dominant, so Thomas must refuse it.
+    const std::size_t n = 20;
+    TridiagonalMatrix a(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        a.at(i, i) = 1.0;
+        if (i + 1 < n) {
+            a.at(i + 1, i) = 4.0;
+            a.at(i, i + 1) = 1.0;
+        }
+    }
+    std::vector<double> expected(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        expected[i] = static_cast<double>(i + 1);
+    }
+    const auto b = a.multiply(expected);
+
+    CHECK(max_abs_diff(TridiagonalLuSolver{}.solve(a, b), expected) < 1e-10);
+    CHECK(max_abs_diff(DenseLuSolver{}.solve(a, b), expected) < 1e-10);
+    CHECK_THROWS_AS(ThomasSolver{}.solve(a, b), std::domain_error);
+}
+
+TEMPLATE_TEST_CASE("Solvers handle a 1 x 1 system", "[solver]", ThomasSolver, TridiagonalLuSolver,
+                   DenseLuSolver) {
     TridiagonalMatrix a(1);
     a.at(0, 0) = 4.0;
 
