@@ -10,9 +10,6 @@ It is a port of the Python FEM reference solver in
 [pinn-vs-fem-1d-bar](https://github.com/alireza-fllh/pinn-vs-fem-1d-bar), and is tested against
 closed-form solutions and against that solver's output.
 
-> **Status:** work in progress. The public API and the test suite are in place; the
-> implementation follows test-first.
-
 ## Build and test
 
 Requires CMake 3.25+ and a C++17 compiler. Catch2 is fetched automatically.
@@ -30,6 +27,18 @@ Options:
 | `FEM1D_BUILD_TESTS` | `ON` | Build the Catch2 test suite |
 | `FEM1D_ENABLE_SANITIZERS` | `OFF` | Build with AddressSanitizer and UndefinedBehaviorSanitizer |
 | `FEM1D_WARNINGS_AS_ERRORS` | `ON` | Treat compiler warnings as errors |
+| `FEM1D_BUILD_BENCHMARKS` | `OFF` | Build `fem1d_bench` |
+
+## Command line
+
+`build/apps/fem1d` takes the same flags as the Python solver's `python -m src.training.run_fem`
+and writes the same `<out>/fem_<case>.csv`, so one command line runs either code:
+
+```bash
+build/apps/fem1d --case hetero --right-type robin --alphaL 10 --betaL 1 --gL 0 --out results
+```
+
+It adds `--solver thomas|lu|dense` to pick the linear solver. `fem1d --help` lists every flag.
 
 ## Cross-check against the Python solver
 
@@ -42,6 +51,40 @@ and the reference commit. To regenerate the data, in the Python repo's environme
 ```bash
 python scripts/generate_golden.py --reference /path/to/pinn-vs-fem-1d-bar
 ```
+
+## Benchmark
+
+`fem1d_bench` times assembly and the three linear solvers on the heterogeneous bar, clamped at
+x = 0 and free at x = L. Each time is the fastest of five batches of repeated calls. One run on an
+Intel i7-12700H under WSL2, GCC 13.3, Release build, single thread:
+
+| unknowns | assemble | Thomas | tridiagonal LU | dense LU |
+|---:|---:|---:|---:|---:|
+| 100 | 2.1 us | 1.2 us | 1.6 us | 64 us |
+| 400 | 7.6 us | 4.8 us | 6.2 us | 4.4 ms |
+| 1 600 | 27 us | 19 us | 25 us | 453 ms |
+| 10 000 | 171 us | 117 us | 160 us | - |
+| 100 000 | 1.8 ms | 1.2 ms | 1.6 ms | - |
+| 1 000 000 | 20 ms | 13 ms | 19 ms | - |
+
+- Both tridiagonal solvers cost a constant 12-19 ns per unknown, so they are O(n). The times
+  include allocating the solution and the input checks (pivot tolerance, and diagonal dominance
+  for Thomas).
+- Pivoting makes tridiagonal LU about 1.3 times slower than Thomas. It is still the default,
+  because Thomas cannot solve every system a Robin condition can produce.
+- Dense LU, the method the Python solver uses through `numpy.linalg.solve`, grows as n^3. At
+  1 600 unknowns it is about 18 000 times slower than tridiagonal LU.
+- All three agree: tridiagonal and dense LU give the same answer bit for bit on this
+  diagonally dominant matrix, and Thomas differs by round-off (4e-14 at 10^6 unknowns).
+
+```bash
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DFEM1D_BUILD_BENCHMARKS=ON
+cmake --build build-release
+build-release/bench/fem1d_bench
+```
+
+CI runs `fem1d_bench --quick` only to check that it works; timings from shared runners mean
+little.
 
 ## License
 

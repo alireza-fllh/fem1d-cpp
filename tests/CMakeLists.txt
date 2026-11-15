@@ -17,10 +17,12 @@ add_executable(fem1d_tests
     test_bar_scenarios.cpp
     test_convergence.cpp
     test_io.cpp
-    test_golden.cpp)
+    test_golden.cpp
+    test_cli.cpp)
 
 target_link_libraries(fem1d_tests PRIVATE
     fem1d::fem1d
+    fem1d_cli
     Catch2::Catch2WithMain
     fem1d_project_options)
 

@@ -36,6 +36,7 @@ jobs:
           -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DFEM1D_ENABLE_SANITIZERS=${{ matrix.sanitizers }}
+          -DFEM1D_BUILD_BENCHMARKS=ON
 
       - name: Build
         run: cmake --build build

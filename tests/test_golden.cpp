@@ -5,15 +5,14 @@
 // That case has no simple closed form and its FEM solution is not exact, so
 // agreement to round-off means both codes assemble and solve the same system.
 
+#include "cli/cases.hpp"
 #include "fem1d/bar_solver.hpp"
 #include "fem1d/io.hpp"
 #include "test_helpers.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <cmath>
 #include <string>
 
-using fem1d::BarProperties;
 using fem1d::BarSolver;
 using fem1d::BoundaryCondition;
 using fem1d::Dirichlet;
@@ -24,16 +23,6 @@ using fem1d::test::max_abs_diff;
 
 namespace {
 
-/// Same functions as physics.get_case_config("hetero") in the Python repo.
-BarProperties hetero_bar() {
-    const double pi = std::acos(-1.0);
-    BarProperties bar;
-    bar.youngs_modulus = [](double x) { return x < 0.5 ? 1.0 : 3.0; };
-    bar.area = [](double x) { return 1.0 + 0.5 * x; };
-    bar.body_force = [pi](double x) { return 2.0 * std::sin(2.0 * pi * x); };
-    return bar;
-}
-
 fem1d::Solution golden(const std::string& name) {
     return fem1d::read_csv(std::string(FEM1D_TEST_DATA_DIR) + "/" + name + ".csv");
 }
@@ -42,7 +31,8 @@ void check_matches_golden(const std::string& name, std::size_t num_elements,
                           const BoundaryCondition& left, const BoundaryCondition& right) {
     const auto reference = golden(name);
     const auto mesh = Mesh::uniform(1.0, num_elements);
-    const auto result = BarSolver{}.solve(mesh, hetero_bar(), left, right);
+    const auto result =
+        BarSolver{}.solve(mesh, fem1d::cli::reference_case("hetero").bar, left, right);
 
     REQUIRE(reference.x.size() == num_elements + 1);
     CHECK(max_abs_diff(result.x, reference.x) < 1e-15);
