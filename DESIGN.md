@@ -165,36 +165,39 @@ and with 1 for a problem that cannot be solved, and it writes no output file in 
 - The polymorphic bases have protected copy and move operations, so a derived object cannot be
   sliced through a base reference.
 
-## SOLID
+## SOLID and GRASP
 
-| Principle | Where it shows |
-|---|---|
-| Single responsibility | Each stage of the pipeline is one type with one reason to change: the element formula, the assembly loop, a boundary condition, a linear solver, the file format. |
-| Open/closed | New boundary conditions and new linear solvers are new classes. `Assembler` and `BarSolver` do not change. |
-| Liskov substitution | `test_linear_solver.cpp` runs the same `TEMPLATE_TEST_CASE`s on all three solvers, and a scenario solves the same bar with each. The one deliberate difference, `ThomasSolver` refusing non-dominant matrices, is part of the documented interface (`\throws`), not a surprise. |
-| Interface segregation | The interfaces each have one method: `apply` and `solve`. |
-| Dependency inversion | `BarSolver` depends on the `LinearSolver` abstraction and receives the concrete solver from outside. The command line chooses it from `--solver`. |
+Three ideas shaped the code:
 
-## GRASP
+- **Variation goes behind an interface, and nowhere else.** Boundary conditions and linear
+  solvers are the two places where alternatives really exist, so they are the only abstract
+  classes. A new condition or solver is a new class, and `Assembler` and `BarSolver` stay as they
+  are (open/closed). `BarSolver` receives its solver from outside instead of creating it
+  (dependency inversion), which is how the tests and the `--solver` flag swap it.
+- **Knowledge stays with the type that owns it.** An element computes its own matrices from its
+  nodes. Each boundary condition carries its own sign convention, so nothing else needs to know
+  about outward normals (information expert).
+- **Coordination is kept apart from computation.** `BarSolver` and the command line's `run()`
+  only call the other parts in order (controller). Linear algebra, file I/O and argument parsing
+  each live in their own files.
 
-| Pattern | Where it shows |
-|---|---|
-| Information expert | `LinearBarElement` computes its own matrices because it knows its nodes. Each boundary condition knows its sign convention and how it changes K and F. |
-| Creator | `Assembler` creates the `LinearSystem` it fills. The CLI's `make_boundary_condition` and `make_linear_solver` create objects from parsed options, keeping that mapping out of the library. |
-| Controller | `BarSolver` coordinates a solve; the command line's `run()` coordinates a program run. Neither does numerical work itself. |
-| Low coupling | Boundary conditions see only `LinearSystem`, not the mesh or the material. Solvers see only the matrix and the right-hand side. |
-| High cohesion | `linear_solver.cpp` holds only linear algebra. Parsing, files and printing are in `io.cpp` and `apps/`. |
-| Polymorphism | Variation in boundary conditions and solvers is handled by virtual dispatch, not by `switch` statements spread through the code. The CLI's one `switch` on `BcKind` turns parsed text into those objects. |
-| Protected variations | The rest of the code depends on two stable interfaces, so changes to how a condition or a solver works do not ripple outward. |
+Where the principles bend:
 
-Not every class uses these patterns. `Assembler::assemble` is a static function, because
-assembly has no state and only one variant. An interface would add indirection with nothing to
-vary.
+- **`ThomasSolver` narrows the `LinearSolver` contract.** The base interface solves any
+  non-singular tridiagonal system and documents only `std::invalid_argument` and
+  `SingularMatrixError`. Thomas refuses matrices that are not diagonally dominant and throws
+  `std::domain_error`, so a caller holding a `LinearSolver&` can meet an exception the base does
+  not mention. Strictly, that breaks Liskov substitution. It is a deliberate trade: without the
+  check, Thomas returns a wrong answer without warning (the case above). So the narrowing is
+  loud: Thomas throws and never returns an inaccurate result. And the default solver is the
+  pivoting one, so only code that asks for Thomas by name can hit it.
+- **No interface where nothing varies.** `Assembler::assemble` is a static function, because
+  assembly has no state and only one variant. An interface would add indirection with nothing to
+  vary.
 
 ## Testing
 
-The tests are written with Catch2. The first commit in the history contains the API and failing
-tests only; the implementation followed. They work at several levels:
+The tests are written with Catch2 and work at several levels:
 
 | Level | Files | What it shows |
 |---|---|---|
@@ -211,8 +214,11 @@ Some details that matter:
   says little. The `hetero` case has a discontinuous E, a tapered A and a sine load, so its FEM
   solution has a real discretisation error. Agreement to 1e-13 means both codes build and solve
   the same system. As a negative check, done by hand, ignoring the taper (A = 1) makes the
-  comparison fail by 1e-2 or more. `scripts/generate_golden.py` regenerates the data from the Python repo's own
-  command line and records the reference commit.
+  comparison fail by 1e-2 or more. `scripts/generate_golden.py` regenerates the data from the
+  Python repo's own command line and records the reference commit.
+- **One set of solver tests for all three solvers.** The shared tests in `test_linear_solver.cpp`
+  are `TEMPLATE_TEST_CASE`s run on each solver. Where the solvers differ, as when Thomas refuses
+  a matrix, a separate test checks that difference.
 - **Bugs become tests.** The Thomas case above is in the suite as a regression test. A separate
   test covers the row-exchange branch of `TridiagonalLuSolver` directly, because diagonally
   dominant matrices never enter it.
