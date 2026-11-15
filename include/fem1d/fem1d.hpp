@@ -7,6 +7,7 @@
 #include "fem1d/bar_solver.hpp"
 #include "fem1d/boundary_conditions.hpp"
 #include "fem1d/element.hpp"
+#include "fem1d/io.hpp"
 #include "fem1d/linear_solver.hpp"
 #include "fem1d/linear_system.hpp"
 #include "fem1d/mesh.hpp"

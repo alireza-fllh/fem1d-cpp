@@ -15,12 +15,17 @@ add_executable(fem1d_tests
     test_linear_solver.cpp
     test_boundary_conditions.cpp
     test_bar_scenarios.cpp
-    test_convergence.cpp)
+    test_convergence.cpp
+    test_io.cpp
+    test_golden.cpp)
 
 target_link_libraries(fem1d_tests PRIVATE
     fem1d::fem1d
     Catch2::Catch2WithMain
     fem1d_project_options)
+
+target_compile_definitions(fem1d_tests PRIVATE
+    FEM1D_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)

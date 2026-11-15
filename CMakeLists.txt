@@ -24,7 +24,8 @@ add_library(fem1d
     src/assembler.cpp
     src/boundary_conditions.cpp
     src/linear_solver.cpp
-    src/bar_solver.cpp)
+    src/bar_solver.cpp
+    src/io.cpp)
 add_library(fem1d::fem1d ALIAS fem1d)
 
 target_include_directories(fem1d PUBLIC

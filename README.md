@@ -31,6 +31,18 @@ Options:
 | `FEM1D_ENABLE_SANITIZERS` | `OFF` | Build with AddressSanitizer and UndefinedBehaviorSanitizer |
 | `FEM1D_WARNINGS_AS_ERRORS` | `ON` | Treat compiler warnings as errors |
 
+## Cross-check against the Python solver
+
+`tests/data/` holds output of the Python solver's own `run_fem` command for the heterogeneous
+bar (two-layer E, tapered A, sine load) with three sets of boundary conditions.
+`tests/test_golden.cpp` solves the same problems and requires agreement to 1e-13; the measured
+difference is below 2e-14. [`tests/data/README.md`](tests/data/README.md) records the commands
+and the reference commit. To regenerate the data, in the Python repo's environment:
+
+```bash
+python scripts/generate_golden.py --reference /path/to/pinn-vs-fem-1d-bar
+```
+
 ## License
 
 MIT
