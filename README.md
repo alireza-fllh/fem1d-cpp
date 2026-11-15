@@ -1,5 +1,7 @@
 # fem1d-cpp
 
+[![CI](https://github.com/alireza-fllh/fem1d-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/alireza-fllh/fem1d-cpp/actions/workflows/ci.yml)
+
 A C++17 finite element solver for the axial displacement of a 1D elastic bar,
 
 $$-\frac{d}{dx}\left(E(x)A(x)\frac{du}{dx}\right) = f(x)A(x), \quad x \in (0, L),$$
