@@ -102,3 +102,40 @@ TEST_CASE("Robin with beta = 0 behaves like Dirichlet u = g / alpha", "[bc]") {
 TEST_CASE("Robin with alpha = beta = 0 is not a condition", "[bc]") {
     CHECK_THROWS_AS(Robin(0.0, 0.0, 1.0), std::invalid_argument);
 }
+
+TEST_CASE("The order in which the two ends are applied does not matter", "[bc]") {
+    const Dirichlet dirichlet(0.3);
+    const Neumann neumann(0.7);
+    const Robin robin(2.0, 1.0, 0.5);
+    const Robin robin_as_dirichlet(4.0, 0.0, 0.6);
+    const std::vector<const fem1d::BoundaryCondition*> conditions{&dirichlet, &neumann, &robin,
+                                                                  &robin_as_dirichlet};
+
+    // On one element both ends touch the same off-diagonal entries.
+    for (const std::size_t elements : {std::size_t{1}, std::size_t{3}}) {
+        BarProperties bar;
+        bar.body_force = constant(3.0);
+        const auto assembled = Assembler::assemble(Mesh::uniform(1.0, elements), bar);
+
+        for (const auto* left : conditions) {
+            for (const auto* right : conditions) {
+                auto left_first = assembled;
+                left->apply(left_first, End::Left);
+                right->apply(left_first, End::Right);
+
+                auto right_first = assembled;
+                right->apply(right_first, End::Right);
+                left->apply(right_first, End::Left);
+
+                // Same entries; F may differ by round-off, since floating-point
+                // additions in a different order are not exactly equal.
+                CHECK(left_first.matrix.diagonal() == right_first.matrix.diagonal());
+                CHECK(left_first.matrix.lower() == right_first.matrix.lower());
+                CHECK(left_first.matrix.upper() == right_first.matrix.upper());
+                for (std::size_t i = 0; i < assembled.rhs.size(); ++i) {
+                    CHECK_THAT(left_first.rhs[i], WithinAbs(right_first.rhs[i], 1e-14));
+                }
+            }
+        }
+    }
+}

@@ -7,8 +7,58 @@ $$-\frac{d}{dx}\left(E(x)A(x)\frac{du}{dx}\right) = f(x)A(x), \quad x \in (0, L)
 with Dirichlet, Neumann and Robin conditions at either end.
 
 It is a port of the Python FEM reference solver in
-[pinn-vs-fem-1d-bar](https://github.com/alireza-fllh/pinn-vs-fem-1d-bar), and is tested against
-closed-form solutions and against that solver's output.
+[pinn-vs-fem-1d-bar](https://github.com/alireza-fllh/pinn-vs-fem-1d-bar) and reproduces its
+output to round-off.
+
+- **Design:** each FEM step is its own type, and boundary conditions and linear solvers are
+  replaceable strategies. [DESIGN.md](DESIGN.md) explains the decisions and relates them to SOLID
+  and GRASP.
+- **Linear algebra:** tridiagonal storage with O(n) solvers. Thomas is guarded by a
+  diagonal-dominance check, and the default pivoting tridiagonal LU follows LAPACK's `dgtsv`. A
+  dense LU is kept as a reference. The tests found a case where an unguarded Thomas solver gives
+  a wrong answer without warning; [DESIGN.md](DESIGN.md#the-linear-solver-is-a-strategy-and-the-default-pivots)
+  tells that story.
+- **Tests:** Catch2 unit tests, BDD scenarios against closed-form solutions, a measured O(h²)
+  convergence rate, golden data from the Python solver, and end-to-end tests of the command line.
+- **Tooling:** CMake, warnings as errors, AddressSanitizer and UndefinedBehaviorSanitizer, and
+  clang-format, all checked in GitHub Actions with GCC and Clang.
+
+## Using the library
+
+```cpp
+#include "fem1d/fem1d.hpp"
+
+#include <iostream>
+
+int main() {
+    using namespace fem1d;
+
+    BarProperties bar;
+    bar.youngs_modulus = [](double x) { return x < 0.5 ? 1.0 : 3.0; };
+    bar.area = [](double x) { return 1.0 + 0.5 * x; };
+    bar.body_force = constant(1.0);
+
+    const auto mesh = Mesh::uniform(1.0, 100);
+    const BarSolver solver; // or BarSolver(std::make_unique<ThomasSolver>())
+    const auto solution = solver.solve(mesh, bar, Dirichlet(0.0), Robin(10.0, 1.0, 0.0));
+
+    write_csv(std::cout, solution); // x,u per node
+}
+```
+
+Link against the `fem1d::fem1d` CMake target. Robin conditions are written as
+αu + βEAu' = g, as in the Python solver.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `include/fem1d/`, `src/` | The library |
+| `apps/` | The `fem1d` command line |
+| `bench/` | The solver benchmark |
+| `tests/` | Catch2 tests; `tests/data/` holds the golden data |
+| `scripts/generate_golden.py` | Regenerates the golden data from the Python solver |
+| `cmake/` | Warning and sanitizer flags |
 
 ## Build and test
 
